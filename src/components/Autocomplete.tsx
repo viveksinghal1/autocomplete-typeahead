@@ -76,7 +76,12 @@ export function Autocomplete({
             <input type="text" value={query} onChange={onInputChange} placeholder={placeholder}/>
             {isFetching}
             {isFetching && <p>Fetching the results....</p>}
-            {error && <p>{error}</p>}
+            {error && (
+                <div className="error">
+                {error}{" "}
+                    <button onClick={() => fetchSuggestions(query)}>Retry</button>
+                </div>
+            )}
             {!isFetching && !error && suggestions.length > 0 &&
                 <ul>
                     {suggestions.map((s, i) => (
