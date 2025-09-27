@@ -27,29 +27,34 @@ export function Autocomplete({
     const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
     const [isFetching, setIsFetching] = useState(false);
     const [suggestionSelected, setSuggestionSelected] = useState(false);
+    const [error, setError] = useState("");
 
     useEffect(() => {
         if (!query) {
             setSuggestions([]);
-            setIsFetching(false);
+            setError("");
             return;
         }
         
         if (suggestionSelected) return;
+        const controller = new AbortController();
 
         const timer = setTimeout(() => {
             setIsFetching(true);
-            fetchSuggestions(query)
+            setError("");
+
+            fetchSuggestions(query, 1, controller.signal)
             .then(resp => {
                 if (resp && resp.suggestions && resp.suggestions.length > 0) {
                     setSuggestions(resp.suggestions);
                 }
             })
-            .catch((err) => setSuggestions([]))
+            .catch((err) => {setSuggestions([]);setError("Failed")})
             .finally(() => setIsFetching(false));
         }, debounceTime);
 
         return () => {
+            controller.abort();
             clearTimeout(timer);
         }
 
@@ -65,7 +70,8 @@ export function Autocomplete({
             <input type="text" value={query} onChange={onInputChange} placeholder={placeholder}/>
             {isFetching}
             {isFetching && <p>Fetching the results....</p>}
-            {!isFetching && suggestions.length > 0 &&
+            {error && <p>{error}</p>}
+            {!isFetching && !error && suggestions.length > 0 &&
                 <ul>
                     {suggestions.map((s, i) => (
                         <li key={i} onClick={() => {
