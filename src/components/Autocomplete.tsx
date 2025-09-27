@@ -53,9 +53,15 @@ export function Autocomplete({
             .finally(() => setIsFetching(false));
         }, debounceTime);
 
+        const timer2 = setTimeout(() => {
+            controller.abort();
+            setError("API took too much time");
+        }, 4000);
+
         return () => {
             controller.abort();
             clearTimeout(timer);
+            clearTimeout(timer2);
         }
 
     }, [query, debounceTime, fetchSuggestions]);
