@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { ChangeEvent, useEffect, useState } from "react";
 
 export type SuggestionResponse = {
     page?: number;
@@ -26,6 +26,7 @@ export function Autocomplete({
     const [query, setQuery] = useState("");
     const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
     const [isFetching, setIsFetching] = useState(false);
+    const [suggestionSelected, setSuggestionSelected] = useState(false);
 
     useEffect(() => {
         if (!query) {
@@ -33,9 +34,10 @@ export function Autocomplete({
             setIsFetching(false);
             return;
         }
+        
+        if (suggestionSelected) return;
 
         const timer = setTimeout(() => {
-            console.log('started');
             setIsFetching(true);
             fetchSuggestions(query)
             .then(resp => {
@@ -51,11 +53,16 @@ export function Autocomplete({
             clearTimeout(timer);
         }
 
-    }, []);
+    }, [query, debounceTime, fetchSuggestions]);
+
+    function onInputChange(e: ChangeEvent<HTMLInputElement>) {
+        setQuery(e.currentTarget.value);
+        setSuggestionSelected(false);
+    }
 
     return (
         <div>
-            <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder}/>
+            <input type="text" value={query} onChange={onInputChange} placeholder={placeholder}/>
             {isFetching}
             {isFetching && <p>Fetching the results....</p>}
             {!isFetching && suggestions.length > 0 &&
@@ -64,6 +71,7 @@ export function Autocomplete({
                         <li key={i} onClick={() => {
                             setQuery(s.suggestion);
                             setSuggestions([]);
+                            setSuggestionSelected(true);
                             onSelect?.(s);
                         }}>
                             <span>{s.suggestion}</span>
