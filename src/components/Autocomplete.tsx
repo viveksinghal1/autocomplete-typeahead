@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 
 export type SuggestionResponse = {
     page?: number;
@@ -17,6 +17,34 @@ type AutocompleteProps = {
     onSelect?: (s: Suggestion) => void;
 }
 
+/** Simple LRU cache */
+class LRUCache<V> {
+    private max: number;
+    private map = new Map<string, { v: V; time: number }>();
+    private ttlMs?: number;
+    constructor(max = 100, ttlMs?: number) { this.max = max; this.ttlMs = ttlMs; }
+    get(k: string): V | undefined {
+      const entry = this.map.get(k);
+      if (!entry) return undefined;
+      if (this.ttlMs && (Date.now() - entry.time > this.ttlMs)) {
+        this.map.delete(k);
+        return undefined;
+      }
+      this.map.delete(k);
+      this.map.set(k, entry);
+      return entry.v;
+    }
+    set(k: string, v: V) {
+      if (this.map.has(k)) this.map.delete(k);
+      this.map.set(k, { v, time: Date.now() });
+      while (this.map.size > this.max) {
+        const firstKey = this.map.keys().next().value;
+        this.map.delete(firstKey);
+      }
+    }
+    has(k: string) { return this.get(k) !== undefined; }
+}
+
 export function Autocomplete({
     fetchSuggestions,
     placeholder = 'Search...',
@@ -28,35 +56,60 @@ export function Autocomplete({
     const [isFetching, setIsFetching] = useState(false);
     const [suggestionSelected, setSuggestionSelected] = useState(false);
     const [error, setError] = useState("");
+    const [retryFlag, setRetryFlag] = useState(0);
+    const cache = useRef(new LRUCache(30, 86400));
 
     useEffect(() => {
-        if (!query) {
+        if (!query.trim()) {
             setSuggestions([]);
             setError("");
+            setIsFetching(false);
+            return;
+        }
+
+        if (suggestionSelected) return;
+
+        const cachedValue = cache.current.get(query);
+
+        if (cachedValue) {
+            setSuggestions(cachedValue as Suggestion[]);
             return;
         }
         
-        if (suggestionSelected) return;
         const controller = new AbortController();
+        setIsFetching(true);
+
+        const timer2 = setTimeout(() => {
+            if (!controller.signal.aborted) {
+                controller.abort();
+                setError("API took too much time");
+            }
+        }, 4000);
 
         const timer = setTimeout(() => {
-            setIsFetching(true);
             setError("");
 
             fetchSuggestions(query, 1, controller.signal)
             .then(resp => {
-                if (resp && resp.suggestions && resp.suggestions.length > 0) {
+                if (resp && resp.suggestions) {
+                    if (controller.signal.aborted) return; // ✅ don’t update if aborted
                     setSuggestions(resp.suggestions);
+                    cache.current.set(query, resp.suggestions);
                 }
             })
-            .catch((err) => {setSuggestions([]);setError("Failed")})
-            .finally(() => setIsFetching(false));
+            .catch((err) => {
+                if (err.name !== "AbortError") {
+                    setSuggestions([]);
+                    setError("Failed");
+                }
+            })
+            .finally(() => {
+                setIsFetching(false);
+                if (!controller.signal.aborted) {
+                    clearTimeout(timer2);
+                }
+            });
         }, debounceTime);
-
-        const timer2 = setTimeout(() => {
-            controller.abort();
-            setError("API took too much time");
-        }, 4000);
 
         return () => {
             controller.abort();
@@ -64,7 +117,7 @@ export function Autocomplete({
             clearTimeout(timer2);
         }
 
-    }, [query, debounceTime, fetchSuggestions]);
+    }, [query, debounceTime, fetchSuggestions, retryFlag]);
 
     function onInputChange(e: ChangeEvent<HTMLInputElement>) {
         setQuery(e.currentTarget.value);
@@ -79,7 +132,7 @@ export function Autocomplete({
             {error && (
                 <div className="error">
                 {error}{" "}
-                    <button onClick={() => fetchSuggestions(query)}>Retry</button>
+                    <button onClick={() => setRetryFlag(f => f + 1)}>Retry</button>
                 </div>
             )}
             {!isFetching && !error && suggestions.length > 0 &&
@@ -96,6 +149,7 @@ export function Autocomplete({
                     ))}
                 </ul>
             }
+            {!!query && !isFetching && !error && !suggestionSelected && suggestions.length === 0 && <p>No result found</p>}
         </div>
     )
 
